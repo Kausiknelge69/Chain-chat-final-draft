@@ -1,12 +1,22 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useWallet } from "@/context/WalletContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "@/hooks/use-toast";
-import { Inbox as InboxIcon, Mail, Lock, Unlock, Shield, ShieldCheck, ShieldX, Clock, User, Loader2, RefreshCw } from "lucide-react";
-import { decryptBundle, EncryptedBundle } from "@/lib/crypto";
+import { Inbox as InboxIcon, Mail, Lock, Unlock, ShieldCheck, ShieldX, Clock, User, Loader2, RefreshCw } from "lucide-react";
+import { decryptBundle } from "@/lib/crypto";
+import { fetchFromIPFS } from "@/lib/ipfs";
+
+interface RawMessage {
+  id: bigint;
+  sender: string;
+  recipient: string;
+  timestamp: bigint;
+  cid: string;
+  signature: string;
+}
 
 interface Message {
   id: number;
@@ -19,257 +29,151 @@ interface Message {
   isVerified?: boolean;
 }
 
-// Mock messages for demonstration
-const mockMessages: Message[] = [
-  {
-    id: 1,
-    sender: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e",
-    recipient: "0x0000000000000000000000000000000000000000",
-    timestamp: Date.now() / 1000 - 3600,
-    cid: "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
-    signature: "0x1234567890abcdef...",
-  },
-  {
-    id: 2,
-    sender: "0x8ba1f109551bD432803012645Ac136ddd64DBA72",
-    recipient: "0x0000000000000000000000000000000000000000",
-    timestamp: Date.now() / 1000 - 7200,
-    cid: "bafybeihkoviema7g3gxyt6la7vd5ho32ictqbilu3ber3mzxdp7wa5iyfy",
-    signature: "0xabcdef1234567890...",
-  },
-];
-
 export function Inbox() {
-  const { account, isCorrectNetwork } = useWallet();
+  const { account, isCorrectNetwork, contract } = useWallet();
+  
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
   const [privateKey, setPrivateKey] = useState("");
   const [isDecrypting, setIsDecrypting] = useState(false);
 
-  const fetchMessages = async () => {
-    if (!account) return;
+  // Fetch messages from Blockchain
+  const fetchMessages = useCallback(async () => {
+    if (!account || !contract) return;
 
     setIsLoading(true);
     try {
-      // In production: const messages = await contract.getMessagesForUser(account);
-      await new Promise((r) => setTimeout(r, 800));
-      setMessages(mockMessages.map((m) => ({ ...m, recipient: account })));
+      console.log("Fetching from chain...");
+      const data = (await contract.getMessagesForUser(account)) as RawMessage[];
+      
+      const formattedMessages = data.map((msg: RawMessage) => ({
+        id: Number(msg.id),
+        sender: msg.sender,
+        recipient: msg.recipient,
+        timestamp: Number(msg.timestamp),
+        cid: msg.cid,
+        signature: msg.signature,
+        decryptedContent: undefined,
+        isVerified: false
+      }));
+
+      setMessages(formattedMessages.reverse());
     } catch (error) {
       console.error("Fetch error:", error);
-      toast({ title: "Fetch Failed", description: "Failed to fetch messages", variant: "destructive" });
+      toast({ title: "Error", description: "Could not fetch messages", variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [account, contract]);
 
   useEffect(() => {
-    if (account && isCorrectNetwork) {
-      fetchMessages();
-    }
-  }, [account, isCorrectNetwork]);
+    if (account && isCorrectNetwork && contract) fetchMessages();
+  }, [account, isCorrectNetwork, contract, fetchMessages]);
 
+  // Decrypt logic: IPFS -> Decrypt
   const handleDecrypt = async () => {
     if (!selectedMessage || !privateKey) return;
 
     setIsDecrypting(true);
     try {
-      // In production: fetch the bundle from IPFS using selectedMessage.cid
-      // For demo, simulate decryption
-      await new Promise((r) => setTimeout(r, 1000));
+      // 1. Fetch from IPFS
+      console.log("Fetching CID:", selectedMessage.cid);
+      const bundle = await fetchFromIPFS(selectedMessage.cid);
+      
+      // 2. Decrypt
+      console.log("Decrypting bundle...");
+      const decryptedText = await decryptBundle(bundle, privateKey);
 
-      // Mock decrypted content
-      const decryptedContent = "This is a secret message that was encrypted using AES-256-GCM and your RSA public key. Only you can read this!";
-
-      // In production:
-      // const response = await fetch(`https://ipfs.io/ipfs/${selectedMessage.cid}`);
-      // const bundle: EncryptedBundle = await response.json();
-      // const decryptedContent = await decryptBundle(bundle, privateKey);
-
-      // Verify EIP-712 signature
-      // const isValid = await verifySignature(selectedMessage);
-
+      // 3. Update State
       setMessages((prev) =>
         prev.map((m) =>
           m.id === selectedMessage.id
-            ? { ...m, decryptedContent, isVerified: true }
+            ? { ...m, decryptedContent: decryptedText, isVerified: true }
             : m
         )
       );
 
       setSelectedMessage(null);
       setPrivateKey("");
+      toast({ title: "Success", description: "Message decrypted!" });
 
-      toast({ title: "Message Decrypted", description: "Message decrypted and signature verified!" });
     } catch (error) {
       console.error("Decrypt error:", error);
-      toast({ title: "Decryption Failed", description: "Invalid private key or corrupted data", variant: "destructive" });
+      toast({ title: "Decryption Failed", description: "Invalid key or IPFS error", variant: "destructive" });
     } finally {
       setIsDecrypting(false);
     }
   };
 
-  const formatAddress = (address: string) => `${address.slice(0, 6)}...${address.slice(-4)}`;
-  const formatTime = (timestamp: number) => {
-    const date = new Date(timestamp * 1000);
-    return date.toLocaleString();
-  };
+  const formatAddress = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+  const formatTime = (ts: number) => new Date(ts * 1000).toLocaleString();
 
-  if (!account) {
-    return (
-      <Card className="bg-card/80 backdrop-blur-sm border-border/50">
-        <CardContent className="py-12 text-center">
-          <InboxIcon className="w-12 h-12 mx-auto text-muted-foreground/50 mb-4" />
-          <p className="text-muted-foreground">Connect your wallet to view messages</p>
-        </CardContent>
-      </Card>
-    );
-  }
+  if (!account) return <div className="p-8 text-center text-muted-foreground">Connect Wallet</div>;
 
   return (
     <Card className="bg-card/80 backdrop-blur-sm border-border/50">
       <CardHeader>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center border border-accent/30">
-              <InboxIcon className="w-5 h-5 text-accent" />
-            </div>
-            <div>
-              <CardTitle className="text-foreground">Inbox</CardTitle>
-              <CardDescription>{messages.length} encrypted messages</CardDescription>
-            </div>
+        <div className="flex justify-between items-center">
+          <div className="flex gap-2 items-center">
+            <InboxIcon className="w-5 h-5 text-primary" />
+            <CardTitle>Inbox</CardTitle>
           </div>
-          <Button variant="cyberOutline" size="sm" onClick={fetchMessages} disabled={isLoading}>
+          <Button variant="outline" size="icon" onClick={fetchMessages} disabled={isLoading}>
             <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
           </Button>
         </div>
+        <CardDescription>{messages.length} messages found</CardDescription>
       </CardHeader>
-      <CardContent>
-        {isLoading ? (
-          <div className="py-12 text-center">
-            <Loader2 className="w-8 h-8 mx-auto text-primary animate-spin mb-4" />
-            <p className="text-muted-foreground text-sm">Fetching messages from chain...</p>
-          </div>
-        ) : messages.length === 0 ? (
-          <div className="py-12 text-center">
-            <Mail className="w-12 h-12 mx-auto text-muted-foreground/50 mb-4" />
-            <p className="text-muted-foreground">No messages yet</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {messages.map((msg) => (
-              <div
-                key={msg.id}
-                className="p-4 rounded-lg bg-secondary/50 border border-border hover:border-primary/30 transition-all"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 space-y-2">
-                    {/* Sender */}
-                    <div className="flex items-center gap-2 text-sm">
-                      <User className="w-4 h-4 text-muted-foreground" />
-                      <span className="text-muted-foreground">From:</span>
-                      <span className="font-mono text-foreground">{formatAddress(msg.sender)}</span>
-                    </div>
-
-                    {/* Timestamp */}
-                    <div className="flex items-center gap-2 text-sm">
-                      <Clock className="w-4 h-4 text-muted-foreground" />
-                      <span className="text-muted-foreground">{formatTime(msg.timestamp)}</span>
-                    </div>
-
-                    {/* CID */}
-                    <div className="flex items-center gap-2 text-xs">
-                      <span className="text-muted-foreground font-mono">CID:</span>
-                      <span className="font-mono text-primary/70">{msg.cid.slice(0, 24)}...</span>
-                    </div>
-
-                    {/* Decrypted Content */}
-                    {msg.decryptedContent && (
-                      <div className="mt-3 p-3 rounded bg-background/50 border border-primary/20">
-                        <div className="flex items-center gap-2 mb-2">
-                          {msg.isVerified ? (
-                            <ShieldCheck className="w-4 h-4 text-primary" />
-                          ) : (
-                            <ShieldX className="w-4 h-4 text-destructive" />
-                          )}
-                          <span className="text-xs text-muted-foreground">
-                            {msg.isVerified ? "Signature Verified" : "Signature Invalid"}
-                          </span>
-                        </div>
-                        <p className="text-sm text-foreground">{msg.decryptedContent}</p>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Decrypt Button */}
-                  {!msg.decryptedContent && (
-                    <Dialog>
-                      <DialogTrigger asChild>
-                        <Button
-                          variant="cyber"
-                          size="sm"
-                          onClick={() => setSelectedMessage(msg)}
-                        >
-                          <Unlock className="w-4 h-4" />
-                          Decrypt
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent className="bg-card border-border">
-                        <DialogHeader>
-                          <DialogTitle className="flex items-center gap-2">
-                            <Lock className="w-5 h-5 text-primary" />
-                            Decrypt Message
-                          </DialogTitle>
-                          <DialogDescription>
-                            Enter your private key to decrypt this message. Your key is only used locally and never stored.
-                          </DialogDescription>
-                        </DialogHeader>
-                        <div className="space-y-4 pt-4">
-                          <div className="p-3 rounded-lg bg-secondary/50 border border-border">
-                            <p className="text-xs text-muted-foreground font-mono mb-1">FROM</p>
-                            <p className="font-mono text-sm text-foreground">{formatAddress(msg.sender)}</p>
-                          </div>
-                          <div className="space-y-2">
-                            <label className="text-sm text-muted-foreground font-mono">YOUR PRIVATE KEY (RSA)</label>
-                            <Input
-                              variant="cyber"
-                              type="password"
-                              placeholder="Base64 encoded private key..."
-                              value={privateKey}
-                              onChange={(e) => setPrivateKey(e.target.value)}
-                            />
-                            <p className="text-xs text-muted-foreground/70 flex items-center gap-1">
-                              <Shield className="w-3 h-3" />
-                              Your key never leaves your browser
-                            </p>
-                          </div>
-                          <Button
-                            variant="cyber"
-                            className="w-full"
-                            onClick={handleDecrypt}
-                            disabled={!privateKey || isDecrypting}
-                          >
-                            {isDecrypting ? (
-                              <>
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                                Decrypting...
-                              </>
-                            ) : (
-                              <>
-                                <Unlock className="w-4 h-4" />
-                                Decrypt & Verify
-                              </>
-                            )}
-                          </Button>
-                        </div>
-                      </DialogContent>
-                    </Dialog>
-                  )}
+      <CardContent className="space-y-4">
+        {messages.map((msg) => (
+          <div key={msg.id} className="p-4 rounded-lg bg-secondary/30 border border-border">
+            <div className="flex justify-between items-start mb-2">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 text-sm text-foreground">
+                  <User className="w-3 h-3" /> {formatAddress(msg.sender)}
+                </div>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Clock className="w-3 h-3" /> {formatTime(msg.timestamp)}
                 </div>
               </div>
-            ))}
+              {!msg.decryptedContent ? (
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <Button size="sm" variant="cyber" onClick={() => setSelectedMessage(msg)}>
+                      <Unlock className="w-3 h-3 mr-1" /> Decrypt
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Decrypt Message</DialogTitle>
+                      <DialogDescription>Paste your RSA Private Key</DialogDescription>
+                    </DialogHeader>
+                    <Input 
+                      type="password" 
+                      placeholder="Private Key..." 
+                      value={privateKey} 
+                      onChange={(e) => setPrivateKey(e.target.value)} 
+                    />
+                    <Button className="w-full mt-2" onClick={handleDecrypt} disabled={isDecrypting}>
+                      {isDecrypting ? "Decrypting..." : "Decrypt"}
+                    </Button>
+                  </DialogContent>
+                </Dialog>
+              ) : (
+                <div className="flex items-center gap-1 text-green-500 text-xs">
+                  <ShieldCheck className="w-3 h-3" /> Verified
+                </div>
+              )}
+            </div>
+            
+            {msg.decryptedContent && (
+              <div className="mt-2 p-3 bg-background/50 rounded text-sm border border-primary/20">
+                {msg.decryptedContent}
+              </div>
+            )}
           </div>
-        )}
+        ))}
       </CardContent>
     </Card>
   );
