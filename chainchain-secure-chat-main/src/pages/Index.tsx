@@ -135,7 +135,7 @@ const Index = () => {
           <div className="flex flex-col md:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2 text-muted-foreground text-sm">
               <Shield className="w-4 h-4" />
-              <span className="font-mono">ChainChain v1.0</span>
+              <span className="font-mono">ChainChat v1.0</span>
             </div>
             <div className="flex items-center gap-6 text-sm text-muted-foreground">
               {/* WAS: <span className="font-mono">Polygon Mumbai Testnet</span> */}

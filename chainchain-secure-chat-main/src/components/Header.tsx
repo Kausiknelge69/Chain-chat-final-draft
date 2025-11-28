@@ -31,7 +31,7 @@ export function Header() {
             </div>
             <div>
               <h1 className="text-xl font-bold text-foreground">
-                Chain<span className="text-gradient-cyber">Chain</span>
+                Chain<span className="text-gradient-cyber">Chat</span>
               </h1>
               <p className="text-xs text-muted-foreground font-mono">Secure • Decentralized • Private</p>
             </div>
