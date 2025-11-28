@@ -2,18 +2,22 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "@/hooks/use-toast";
-import { Key, Copy, RefreshCw, Eye, EyeOff, Shield, Download } from "lucide-react";
+import { Key, Copy, RefreshCw, Eye, EyeOff, Shield, Download, QrCode } from "lucide-react"; // Added QrCode
 import { generateRSAKeyPair, exportPublicKey, exportPrivateKey } from "@/lib/crypto";
+import QRCode from "react-qr-code"; // Import the library
 
 export function KeyGenerator() {
   const [publicKey, setPublicKey] = useState("");
   const [privateKey, setPrivateKey] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [showPrivateKey, setShowPrivateKey] = useState(false);
+  const [showQr, setShowQr] = useState(false); // Toggle for QR
 
   const handleGenerate = async () => {
     setIsGenerating(true);
     try {
+      // Simulate delay for UX
+      await new Promise(r => setTimeout(r, 500));
       const keyPair = await generateRSAKeyPair();
       const pubKey = await exportPublicKey(keyPair.publicKey);
       const privKey = await exportPrivateKey(keyPair.privateKey);
@@ -60,7 +64,7 @@ export function KeyGenerator() {
       </CardHeader>
       <CardContent className="space-y-4">
         <Button variant="cyber" className="w-full" onClick={handleGenerate} disabled={isGenerating}>
-          <RefreshCw className={`w-4 h-4 ${isGenerating ? "animate-spin" : ""}`} />
+          <RefreshCw className={`w-4 h-4 mr-2 ${isGenerating ? "animate-spin" : ""}`} />
           {isGenerating ? "Generating..." : "Generate New Key Pair"}
         </Button>
 
@@ -74,14 +78,25 @@ export function KeyGenerator() {
                   PUBLIC KEY (Share this)
                 </label>
                 <div className="flex gap-1">
-                  <Button variant="ghost" size="sm" onClick={() => copyToClipboard(publicKey, "Public key")}>
-                    <Copy className="w-3 h-3" />
+                  <Button variant="ghost" size="icon" onClick={() => setShowQr(!showQr)} title="Show QR Code">
+                    <QrCode className="w-4 h-4 text-primary" />
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => downloadKey(publicKey, "chainchain-public-key.txt")}>
-                    <Download className="w-3 h-3" />
+                  <Button variant="ghost" size="icon" onClick={() => copyToClipboard(publicKey, "Public key")}>
+                    <Copy className="w-4 h-4" />
+                  </Button>
+                  <Button variant="ghost" size="icon" onClick={() => downloadKey(publicKey, "chainchain-public-key.txt")}>
+                    <Download className="w-4 h-4" />
                   </Button>
                 </div>
               </div>
+              
+              {/* QR Code Display */}
+              {showQr && (
+                <div className="flex justify-center p-4 bg-white rounded-lg mb-2">
+                  <QRCode value={publicKey} size={200} />
+                </div>
+              )}
+
               <div className="p-3 rounded-lg bg-secondary/50 border border-border font-mono text-xs text-primary/80 break-all max-h-24 overflow-y-auto">
                 {publicKey}
               </div>
@@ -95,14 +110,14 @@ export function KeyGenerator() {
                   PRIVATE KEY (Keep secret!)
                 </label>
                 <div className="flex gap-1">
-                  <Button variant="ghost" size="sm" onClick={() => setShowPrivateKey(!showPrivateKey)}>
-                    {showPrivateKey ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                  <Button variant="ghost" size="icon" onClick={() => setShowPrivateKey(!showPrivateKey)}>
+                    {showPrivateKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => copyToClipboard(privateKey, "Private key")}>
-                    <Copy className="w-3 h-3" />
+                  <Button variant="ghost" size="icon" onClick={() => copyToClipboard(privateKey, "Private key")}>
+                    <Copy className="w-4 h-4" />
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => downloadKey(privateKey, "chainchain-private-key.txt")}>
-                    <Download className="w-3 h-3" />
+                  <Button variant="ghost" size="icon" onClick={() => downloadKey(privateKey, "chainchain-private-key.txt")}>
+                    <Download className="w-4 h-4" />
                   </Button>
                 </div>
               </div>

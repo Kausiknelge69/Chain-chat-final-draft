@@ -1,0 +1,1 @@
+{"version":3,"file":"IScannerComponents.d.ts","sourceRoot":"","sources":["../../src/types/IScannerComponents.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,aAAa,EAAE,MAAM,SAAS,CAAC;AAE7C,MAAM,WAAW,kBAAkB;IAClC,MAAM,CAAC,EAAE,OAAO,CAAC;IACjB,KAAK,CAAC,EAAE,OAAO,CAAC;IAChB,OAAO,CAAC,EAAE,aAAa,CAAC;IACxB,KAAK,CAAC,EAAE,OAAO,CAAC;IAChB,IAAI,CAAC,EAAE,OAAO,CAAC;CACf"}

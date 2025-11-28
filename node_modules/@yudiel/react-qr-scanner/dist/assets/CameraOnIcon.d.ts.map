@@ -1,0 +1,1 @@
+{"version":3,"file":"CameraOnIcon.d.ts","sourceRoot":"","sources":["../../src/assets/CameraOnIcon.tsx"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,aAAa,EAAE,MAAM,OAAO,CAAC;AAE3C,UAAU,cAAc;IACvB,OAAO,EAAE,MAAM,IAAI,CAAC;IACpB,QAAQ,EAAE,OAAO,CAAC;IAClB,SAAS,CAAC,EAAE,MAAM,CAAC;IACnB,KAAK,CAAC,EAAE,aAAa,CAAC;CACtB;AAED,MAAM,CAAC,OAAO,UAAU,YAAY,CAAC,KAAK,EAAE,cAAc,2CA4BzD"}
