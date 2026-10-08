@@ -1,0 +1,73 @@
+name: CI/CD Pipeline - Chain Chat
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    name: Build & Type Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: chainchain-secure-chat-main/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./chainchain-secure-chat-main
+        run: npm ci
+
+      - name: Type check (TypeScript)
+        working-directory: ./chainchain-secure-chat-main
+        run: npx tsc --noEmit
+
+      - name: Build frontend bundle
+        working-directory: ./chainchain-secure-chat-main
+        run: npm run build
+
+  deploy-to-vercel:
+    name: Deploy to Vercel (Production)
+    needs: build-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID || 'team_9vyFtI1S4g2cahOndjSAiT9f' }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID || 'prj_g4D3D7MtubTBrVkSwSGQNKtCsTQd' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check for Vercel Token
+        id: check-token
+        run: |
+          if [ -z "${{ secrets.VERCEL_TOKEN }}" ]; then
+            echo "has_token=false" >> $GITHUB_OUTPUT
+            echo "::warning ::VERCEL_TOKEN secret is not set in GitHub repository secrets. To enable automatic Vercel deployments via Actions, add VERCEL_TOKEN to repository Settings -> Secrets and variables -> Actions."
+          else
+            echo "has_token=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Deploy to Vercel
+        if: steps.check-token.outputs.has_token == 'true'
+        working-directory: ./chainchain-secure-chat-main
+        run: |
+          npx --yes vercel deploy --prod --token=${{ secrets.VERCEL_TOKEN }} --yes
