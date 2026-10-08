@@ -11,6 +11,7 @@ import { SpendingControls } from "@/components/SpendingControls";
 import { DeveloperApiConsole } from "@/components/DeveloperApiConsole";
 import { FintechDownbar } from "@/components/FintechDownbar";
 import { useWallet } from "@/context/WalletContext";
+import { CONTRACT_ADDRESS } from "@/lib/constants";
 import {
   Wallet,
   ArrowRight,
@@ -326,7 +327,7 @@ export default function Index() {
                           {tx.type === "send" ? "Sent Transfer" : tx.type === "nfc_pay" ? "NFC Contactless Pay" : "Received Funds"}
                         </p>
                         <p className="text-xs text-[#6F6874] dark:text-[#A8A1AF] font-mono mt-0.5">
-                          {tx.to ? `${tx.to.slice(0, 8)}...${tx.to.slice(-6)}` : tx.hash.slice(0, 12)}
+                          {tx.recipientOrSender ? `${tx.recipientOrSender.slice(0, 8)}...${tx.recipientOrSender.slice(-6)}` : tx.hash.slice(0, 12)}
                         </p>
                       </div>
                     </div>
@@ -366,12 +367,12 @@ export default function Index() {
                 Polygon Amoy Testnet Infrastructure
               </h3>
               <p className="text-xs text-[#6F6874] dark:text-[#A8A1AF]">
-                Smart contract: <span className="font-mono text-[#17131A] dark:text-white">0x9378C735d648439D1F49021e1dD1743666b6e94C</span> · Chain ID: 80002
+                Smart contract: <span className="font-mono text-[#17131A] dark:text-white">{CONTRACT_ADDRESS}</span> · Chain ID: 80002
               </p>
             </div>
 
             <a
-              href="https://amoy.polygonscan.com/address/0x9378C735d648439D1F49021e1dD1743666b6e94C"
+              href={`https://amoy.polygonscan.com/address/${CONTRACT_ADDRESS}`}
               target="_blank"
               rel="noreferrer"
               className="chain-btn-outline text-xs py-2.5 px-4 cursor-pointer"

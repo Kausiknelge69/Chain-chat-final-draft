@@ -54,7 +54,7 @@ export function BankHub({ onNavigateToPayments }: BankHubProps) {
     type: string;
     amount: string;
     timestamp: number;
-    to?: string;
+    recipientOrSender: string;
   } | null>(null);
 
   const copyAddress = async () => {
@@ -277,7 +277,7 @@ export function BankHub({ onNavigateToPayments }: BankHubProps) {
                       {tx.type === "send" ? "Sent Transfer" : tx.type === "nfc_pay" ? "NFC Contactless Pay" : "Received Funds"}
                     </p>
                     <p className="text-xs text-[#6F6874] dark:text-[#A8A1AF] font-mono mt-0.5 truncate">
-                      {tx.to ? `${tx.to.slice(0, 6)}...${tx.to.slice(-4)}` : `${tx.hash.slice(0, 8)}...`}
+                      {tx.recipientOrSender ? `${tx.recipientOrSender.slice(0, 6)}...${tx.recipientOrSender.slice(-4)}` : `${tx.hash.slice(0, 8)}...`}
                     </p>
                   </div>
                 </div>
@@ -308,7 +308,7 @@ export function BankHub({ onNavigateToPayments }: BankHubProps) {
             ? {
                 txHash: selectedTx.hash,
                 amount: selectedTx.amount,
-                to: selectedTx.to,
+                to: selectedTx.recipientOrSender,
                 timestamp: selectedTx.timestamp,
               }
             : null

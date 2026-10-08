@@ -1,7 +1,17 @@
 import { EncryptedBundle } from "./crypto";
 
 const PINATA_JWT = import.meta.env.VITE_PINATA_JWT;
-const GATEWAY_URL = import.meta.env.VITE_GATEWAY_URL || "https://gateway.pinata.cloud/ipfs/";
+const RAW_GATEWAY = import.meta.env.VITE_GATEWAY_URL || "https://gateway.pinata.cloud/ipfs/";
+// Normalize: ensure https:// prefix and /ipfs/ path suffix
+const GATEWAY_URL = (() => {
+  let url = RAW_GATEWAY;
+  if (!url.startsWith("http://") && !url.startsWith("https://")) {
+    url = `https://${url}`;
+  }
+  if (!url.endsWith("/")) url += "/";
+  if (!url.includes("/ipfs/")) url += "ipfs/";
+  return url;
+})();
 
 export async function uploadToIPFS(bundle: EncryptedBundle): Promise<string> {
   if (!PINATA_JWT) {

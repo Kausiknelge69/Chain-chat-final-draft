@@ -2,7 +2,9 @@
 // Target Network: Polygon Mumbai Testnet
 
 export const POLYGON_AMOY_CHAIN_ID = 80002;
-export const POLYGON_AMOY_RPC = "https://rpc-amoy.polygon.technology/";
+export const POLYGON_AMOY_RPC =
+  import.meta.env.VITE_POLYGON_AMOY_RPC ||
+  "https://rpc-amoy.polygon.technology/";
 
 // Contract Address - Replace with deployed contract address
 export const CONTRACT_ADDRESS = "0x2451Dd9C7A8D64F4a6e3B2CeC0c527D6b608129C";

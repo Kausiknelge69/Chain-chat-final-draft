@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from "react";
-import { BrowserProvider, JsonRpcSigner, Contract, formatEther, parseEther } from "ethers";
+import { BrowserProvider, JsonRpcProvider, JsonRpcSigner, Contract, formatEther, parseEther, parseUnits } from "ethers";
 import { CONTRACT_ADDRESS, CONTRACT_ABI, POLYGON_AMOY_CHAIN_ID, POLYGON_AMOY_RPC } from "@/lib/constants";
 import { toast } from "@/hooks/use-toast";
 import { WalletConnectModal } from "@/components/WalletConnectModal";
@@ -13,6 +13,45 @@ declare global {
       isMetaMask?: boolean;
     };
   }
+}
+
+// Dedicated read-only RPC provider for state queries & fee calculations (avoids wallet RPC rate limiting)
+export const dedicatedRpcProvider = new JsonRpcProvider(
+  POLYGON_AMOY_RPC,
+  POLYGON_AMOY_CHAIN_ID,
+  { staticNetwork: true }
+);
+
+// Dedicated read-only contract for view queries
+export const readContract = new Contract(CONTRACT_ADDRESS, CONTRACT_ABI, dedicatedRpcProvider);
+
+// Helper to format cryptic provider rate-limit errors into actionable user guidance
+function parseRpcError(error: unknown): Error {
+  if (!error) return new Error("Transaction failed");
+  const errObj = error as Record<string, unknown>;
+  const rawMsg = (error as Error).message || "";
+  const nestedMsg =
+    (errObj.info as { error?: { message?: string } })?.error?.message ||
+    (errObj.error as { message?: string })?.message ||
+    (errObj.data as { message?: string })?.message ||
+    "";
+  const errText = `${rawMsg} ${nestedMsg} ${String(error)}`.toLowerCase();
+
+  const isRateLimited =
+    errText.includes("rate limit") ||
+    errText.includes("rate-limit") ||
+    errText.includes("too many requests") ||
+    errText.includes("429") ||
+    (errText.includes("-32603") && errText.includes("limit")) ||
+    (errText.includes("could not coalesce error") && errText.includes("limit"));
+
+  if (isRateLimited) {
+    return new Error(
+      "Polygon Amoy RPC rate limit reached. The RPC endpoint is currently throttled. Configure a dedicated RPC endpoint (VITE_POLYGON_AMOY_RPC) or try again shortly."
+    );
+  }
+
+  return error instanceof Error ? error : new Error(rawMsg || String(error));
 }
 
 export interface BankTransaction {
@@ -29,8 +68,10 @@ export interface BankTransaction {
 interface WalletContextType {
   account: string | null;
   provider: BrowserProvider | null;
+  readProvider: JsonRpcProvider;
   signer: JsonRpcSigner | null;
   contract: Contract | null;
+  readContract: Contract;
   chainId: number | null;
   balance: string | null;
   isConnecting: boolean;
@@ -89,27 +130,36 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const isCorrectNetwork = chainId === POLYGON_AMOY_CHAIN_ID;
 
-  // Refresh live balance directly from Polygon RPC / provider
+  // Refresh live balance: prioritize dedicated read RPC to prevent hammering the wallet provider
   const refreshBalance = useCallback(async () => {
-    if (!provider || !account) {
+    if (!account) {
       setBalance(null);
       return;
     }
 
     try {
-      const balWei = await provider.getBalance(account);
+      const balWei = await dedicatedRpcProvider.getBalance(account);
       const formatted = parseFloat(formatEther(balWei)).toFixed(4);
       setBalance(formatted);
     } catch (err) {
-      console.warn("Could not fetch balance from node:", err);
+      console.warn("Dedicated RPC balance fetch failed, attempting browser provider:", err);
+      if (provider) {
+        try {
+          const balWei = await provider.getBalance(account);
+          const formatted = parseFloat(formatEther(balWei)).toFixed(4);
+          setBalance(formatted);
+        } catch (provErr) {
+          console.warn("Browser provider balance fetch also failed:", provErr);
+        }
+      }
     }
-  }, [provider, account]);
+  }, [account, provider]);
 
   useEffect(() => {
-    if (account && provider) {
+    if (account) {
       refreshBalance();
     }
-  }, [account, chainId, provider, refreshBalance]);
+  }, [account, chainId, refreshBalance]);
 
   const switchNetwork = useCallback(async () => {
     if (!window.ethereum) {
@@ -177,18 +227,37 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const currentChain = Number(network.chainId);
       const chainContract = new Contract(CONTRACT_ADDRESS, CONTRACT_ABI, userSigner);
 
+      // Route read queries (getMessagesForUser) through dedicated read RPC to prevent wallet rate limiting
+      const originalGetMessages = chainContract.getMessagesForUser?.bind(chainContract);
+      if (originalGetMessages) {
+        chainContract.getMessagesForUser = async (...args: unknown[]) => {
+          try {
+            return await readContract.getMessagesForUser(...(args as [string]));
+          } catch (readErr) {
+            console.warn("Dedicated RPC getMessagesForUser failed, falling back to signer:", readErr);
+            return await originalGetMessages(...args);
+          }
+        };
+      }
+
       setAccount(accounts[0]);
       setProvider(browserProvider);
       setSigner(userSigner);
       setContract(chainContract);
       setChainId(currentChain);
 
-      // Immediately fetch live balance
+      // Immediately fetch live balance via dedicated read RPC
       try {
-        const balWei = await browserProvider.getBalance(accounts[0]);
+        const balWei = await dedicatedRpcProvider.getBalance(accounts[0]);
         setBalance(parseFloat(formatEther(balWei)).toFixed(4));
       } catch (balErr) {
-        console.warn("Balance fetch:", balErr);
+        console.warn("Dedicated RPC balance fetch failed, falling back to browser provider:", balErr);
+        try {
+          const balWei = await browserProvider.getBalance(accounts[0]);
+          setBalance(parseFloat(formatEther(balWei)).toFixed(4));
+        } catch (e) {
+          console.warn("Balance fetch failed:", e);
+        }
       }
 
       toast({
@@ -235,7 +304,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       throw new Error("Invalid POL amount");
     }
 
-    if (!account || !signer) {
+    if (!account || !signer || !provider) {
       throw new Error("Wallet not connected. Connect your wallet first.");
     }
 
@@ -243,10 +312,44 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       throw new Error("Please switch to Polygon Amoy Testnet (Chain ID 80002).");
     }
 
-    const tx = await signer.sendTransaction({
-      to,
-      value: parseEther(amount),
-    });
+    // Query current network fee data: prefer dedicated RPC to avoid wallet rate limits
+    let feeData = null;
+    try {
+      feeData = await dedicatedRpcProvider.getFeeData();
+    } catch (readErr) {
+      console.warn("Dedicated RPC getFeeData failed, falling back to wallet provider:", readErr);
+      try {
+        feeData = await provider.getFeeData();
+      } catch (provErr) {
+        console.warn("Wallet provider getFeeData also failed:", provErr);
+      }
+    }
+
+    const minPriorityFee = parseUnits("25", "gwei");
+
+    const maxPriorityFeePerGas =
+      feeData?.maxPriorityFeePerGas &&
+      feeData.maxPriorityFeePerGas > minPriorityFee
+        ? feeData.maxPriorityFeePerGas
+        : minPriorityFee;
+
+    const maxFeePerGas =
+      feeData?.maxFeePerGas &&
+      feeData.maxFeePerGas > maxPriorityFeePerGas
+        ? feeData.maxFeePerGas
+        : maxPriorityFeePerGas + parseUnits("5", "gwei");
+
+    let tx;
+    try {
+      tx = await signer.sendTransaction({
+        to,
+        value: parseEther(amount),
+        maxPriorityFeePerGas,
+        maxFeePerGas,
+      });
+    } catch (sendErr) {
+      throw parseRpcError(sendErr);
+    }
 
     recordTransaction({
       type: "send",
@@ -259,12 +362,41 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     });
 
     // Wait for 1 confirmation
-    await tx.wait();
+    try {
+      await tx.wait();
+    } catch (waitErr) {
+      console.warn("tx.wait() encountered error:", waitErr);
+      throw parseRpcError(waitErr);
+    }
 
-    // Refresh balance after confirmation
-    if (provider && account) {
-      const balWei = await provider.getBalance(account);
-      setBalance(parseFloat(formatEther(balWei)).toFixed(4));
+    // Update transaction status from "pending" to "confirmed"
+    setTransactions(prev => {
+      const updated = prev.map(t =>
+        t.hash === tx.hash ? { ...t, status: "confirmed" as const } : t
+      );
+      try {
+        localStorage.setItem("chainchat_tx_history_prod", JSON.stringify(updated.slice(0, 50)));
+      } catch (e) {
+        console.error(e);
+      }
+      return updated;
+    });
+
+    // Refresh balance after confirmation using dedicated RPC
+    if (account) {
+      try {
+        const balWei = await dedicatedRpcProvider.getBalance(account);
+        setBalance(parseFloat(formatEther(balWei)).toFixed(4));
+      } catch {
+        if (provider) {
+          try {
+            const balWei = await provider.getBalance(account);
+            setBalance(parseFloat(formatEther(balWei)).toFixed(4));
+          } catch (e) {
+            console.error(e);
+          }
+        }
+      }
     }
 
     return tx.hash;
@@ -301,8 +433,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       value={{
         account,
         provider,
+        readProvider: dedicatedRpcProvider,
         signer,
         contract,
+        readContract,
         chainId,
         balance,
         isConnecting,

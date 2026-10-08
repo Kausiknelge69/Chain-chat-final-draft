@@ -16,6 +16,8 @@ import {
   Zap,
 } from "lucide-react";
 
+import { POLYGON_AMOY_RPC, CONTRACT_ADDRESS } from "@/lib/constants";
+
 export function DeveloperApiConsole() {
   const [apiKey, setApiKey] = useState("cc_live_9f8a7e32b84c104e76d9");
   const [copiedKey, setCopiedKey] = useState(false);
@@ -23,8 +25,8 @@ export function DeveloperApiConsole() {
   const [apiRequests, setApiRequests] = useState(1842);
   const [isRotating, setIsRotating] = useState(false);
 
-  const amoyRpc = "https://rpc-amoy.polygon.technology";
-  const contractAddress = "0x87B3F73618485B8A88102B376288591B24850B39";
+  const amoyRpc = POLYGON_AMOY_RPC;
+  const contractAddress = CONTRACT_ADDRESS;
 
   const handleCopy = async (text: string, type: "key" | "rpc") => {
     sound.playCardTap();
