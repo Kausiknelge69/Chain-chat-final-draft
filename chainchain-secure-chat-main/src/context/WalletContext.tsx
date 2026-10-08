@@ -235,12 +235,19 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       throw new Error("Invalid POL amount");
     }
 
-    if (!account || !signer) {
+    if (!account || !signer || !provider) {
       throw new Error("Wallet not connected. Connect your wallet first.");
     }
 
     if (!isCorrectNetwork) {
       throw new Error("Please switch to Polygon Amoy Testnet (Chain ID 80002).");
+    }
+
+    const destinationCode = await provider.getCode(to);
+    if (destinationCode && destinationCode !== "0x") {
+      throw new Error(
+        "Recipient is a smart contract. This flow only supports wallet-to-wallet POL transfers; call the contract's payment function instead."
+      );
     }
 
     const tx = await signer.sendTransaction({
